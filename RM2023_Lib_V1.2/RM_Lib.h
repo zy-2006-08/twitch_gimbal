@@ -528,6 +528,10 @@ class ADXRS453
 /**************************************BMI088************************************************/
 #ifdef __SPI_H__
 
+/* Ported BMI088 driver + attitude pipeline. Provides imu_facade, which the
+ * BMI088 class below uses to drive Init()/analyse(). */
+#include "imu_facade.h"
+
 #define  ACC_CHIP_ID  		0x00
 #define  ACC_ERR_REG			0X02
 #define  ACC_STATUS				0X03
@@ -856,6 +860,9 @@ class BMI088
 		BMI088(SPI_HandleTypeDef *q,TIM_HandleTypeDef *t,GPIO_TypeDef *w1,uint16_t p1,GPIO_TypeDef *w2,uint16_t p2,uint16_t num,float dz,BMI088_GyroRangeTypeDef gyrorange,BMI088_AccRangeTypeDef accrange):
 		hspi(q),htim(t),CSB1_GPIOx(w1),CSB1_GPIO_Pin(p1),CSB2_GPIOx(w2),CSB2_GPIO_Pin(p2),SELF_TEST_NUM(num),dead_zoom(dz),GyroRange(gyrorange),AccRange(accrange){}
 	private:
+		/* Ported pipeline state: driver handles, calibration state machine, ZARU
+		 * bias observer and attitude filter all live here, per object. */
+		imu_facade    imu;
 		BMI088_GyroRangeTypeDef  GyroRange;  // 陀螺仪量程
   	BMI088_AccRangeTypeDef   AccRange;  // 加速度量程
 		float 				GyroResolution;   // 陀螺仪分辨率

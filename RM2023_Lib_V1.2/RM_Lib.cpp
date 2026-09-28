@@ -1034,72 +1034,36 @@ float inVSqrt(float x)
 
 BMI088_StatusTypeDef	BMI088::Init(void)
 {
-	uint8_t BMI088_rev_buf[32],loop_break=1,loop_count=0;
-		BMI088_write_Acc(ACC_SOFTRESET,0xB6);   // 复位加速度计
-		HAL_Delay(1);
+	/* Brings up the ported pipeline. imu_facade_init identifies AND configures
+	 * both sensors and reads back every configuration register, reporting
+	 * IMU_FACADE_OK only when all of it succeeded - exactly the contract that
+	 * BMI088_OK carried before. */
+	const imu_facade_status status = imu_facade_init(
+			&this->imu, this->hspi,
+			this->CSB1_GPIOx, this->CSB1_GPIO_Pin,   /* accelerometer CS, PA4 */
+			this->CSB2_GPIOx, this->CSB2_GPIO_Pin);  /* gyroscope CS, PC4 */
 
-		BMI088_read_Acc(ACC_CHIP_ID,1,BMI088_rev_buf);   // 初始化为SPI模式
-		HAL_Delay(5);
-		BMI088_read_Acc(ACC_CHIP_ID,1,BMI088_rev_buf);   // 确定ID无误
-		if(BMI088_rev_buf[0]!=0x1E)  return BMI088_ACC_ID_ERROR;
-		
-		BMI088_write_Acc(ACC_PWR_CONF,0x00);		// 设置加速度计为正常模式
-		HAL_Delay(5);
-		BMI088_write_Acc(ACC_PWR_CTRL,0x04);		// 使能加速度计和温度计
-		HAL_Delay(10);				// 加速度计启动延时
-		
-		BMI088_write_Acc(ACC_CONF,0x0A);				// 设置加速度计输出速率为 400Hz
-		
-		BMI088_write_Acc(ACC_RANGE,AccRange);				// 设置量程为 ±6g		
-		
-		HAL_Delay(2);
-	
-	BMI088_write_Gyro(GYRO_SOFTRESET,0xB6);  // 复位陀螺仪
-	HAL_Delay(30);        // 陀螺仪启动延时
-	BMI088_read_Gyro(GYRO_CHIP_ID,1,BMI088_rev_buf);  // 确定ID无误
-	if(BMI088_rev_buf[0]!=0x0F) return BMI088_GYRO_ID_ERROR;
-
-	BMI088_write_Gyro(GYRO_BANDWIDTH,0x02); // 设置陀螺仪输出速率为 1000Hz，过滤器带宽为???Hz
-	BMI088_write_Gyro(GYRO_RANGE,GyroRange);
-
-	BMI088_write_Gyro(GYRO_SELF_TEST,0x01);  // 陀螺仪自检
-	
-	while(loop_break)
-	{
-		BMI088_read_Gyro(GYRO_SELF_TEST,1,BMI088_rev_buf);		// 自检
-		if((BMI088_rev_buf[0]&0x02)==0x02)
-		{
-			loop_break=0;
-		}
-		loop_count++;
-		if(loop_count>=40)			    // 自检超时，自检失败
-		{ 
-				this->set_zero();
-			  return BMI088_SELFTEXT_ERROR;
-		}
-		HAL_Delay(10);
-	}
-	
-	HAL_Delay(1);
-	this->BMI088_read_Gyro(GYRO_SELF_TEST,1,BMI088_rev_buf);
-	if((BMI088_rev_buf[0]&0x04)!=0)  return BMI088_SELFTEXT_ERROR;
-	
-	if(this->AccRange==BMI088_ACC_RANGE_3) 		   this->AccRangsetting=0.0008974358974f;
+	/* Range-derived scale factors are still recorded so they remain visible in
+	 * a debugger, but the ported driver owns the real conversion and applies
+	 * the exact BMI088 sensitivities instead of the old constants. */
+	if(this->AccRange==BMI088_ACC_RANGE_3) 			this->AccRangsetting=0.0008974358974f;
 	else if(this->AccRange==BMI088_ACC_RANGE_6)  this->AccRangsetting=0.00179443359375f;
 	else if(this->AccRange==BMI088_ACC_RANGE_12) this->AccRangsetting=0.0035888671875f;
-	else if(this->AccRange==BMI088_ACC_RANGE_24) this->AccRangsetting=0.007177734375f;	
-	
+	else if(this->AccRange==BMI088_ACC_RANGE_24) this->AccRangsetting=0.007177734375f;
+
 	if(this->GyroRange==BMI088_GYRO_RANGE_2000) this->GyroResolution=16.384f;
 	else if(this->GyroRange==BMI088_GYRO_RANGE_1000) this->GyroResolution=32.768f;
 	else if(this->GyroRange==BMI088_GYRO_RANGE_500) this->GyroResolution=65.536f;
 	else if(this->GyroRange==BMI088_GYRO_RANGE_250) this->GyroResolution=131.072f;
 	else if(this->GyroRange==BMI088_GYRO_RANGE_125) this->GyroResolution=262.144f;
-	
+
+	if(status == IMU_FACADE_ERR_ACCEL) return BMI088_ACC_ID_ERROR;
+	if(status == IMU_FACADE_ERR_GYRO)  return BMI088_GYRO_ID_ERROR;
+
 	this->set_zero();
 	HAL_TIM_Base_Start_IT(this->htim);
 	this->low_pass_filter_init();
 	return BMI088_OK;
-	
 }
 
 void	BMI088::BMI088_update(void)
@@ -1621,14 +1585,61 @@ void BMI088::Analyse_speed(void)
 
 void BMI088::analyse(void)
 {
-	//更新上次的欧拉角
+	/* One 1 kHz TIM7 cycle. The ported pipeline reads the gyro every call, the
+	 * accelerometer at 100 Hz and temperature at ~1 Hz, runs the stationary
+	 * calibration state machine plus ZARU bias estimation, and integrates the
+	 * quaternion with a rotation-vector exponential map. */
+	imu_facade_tick(&this->imu);
+
+	/* Previous wrapped angles, for the multi-turn unwrap below. */
 	this->lastAngle.pitch = this->eulerAngle.pitch;
-	this->lastAngle.yaw 	= this->eulerAngle.yaw;
-	this->lastAngle.roll 	= this->eulerAngle.roll;
-	this->BMI088_New_update();
-	this->QuatToEulerAngles();//四元数转换为欧拉角
-	this->BMI_CrossRound_err();		//过圈检测
-	this->Analyse_speed();
+	this->lastAngle.yaw	= this->eulerAngle.yaw;
+	this->lastAngle.roll	= this->eulerAngle.roll;
+
+	/* Quaternion, w-first, straight through to the vision PC. */
+	this->q0_t = this->imu.q_w;
+	this->q1_t = this->imu.q_x;
+	this->q2_t = this->imu.q_y;
+	this->q3_t = this->imu.q_z;
+	this->Q_info.q0 = this->imu.q_w;
+	this->Q_info.q1 = this->imu.q_x;
+	this->Q_info.q2 = this->imu.q_y;
+	this->Q_info.q3 = this->imu.q_z;
+
+	/* Euler angles in DEGREES, wrapped to +/-180. The ported middleware uses the
+	 * identical ZYX formulas this class used before, so the convention and the
+	 * physical axis meaning are unchanged. */
+	this->eulerAngle.pitch = this->imu.pitch_deg;
+	this->eulerAngle.roll  = this->imu.roll_deg;
+	this->eulerAngle.yaw   = this->imu.yaw_deg;
+
+	this->nowAngle.pitch = this->eulerAngle.pitch;
+	this->nowAngle.roll  = this->eulerAngle.roll;
+	this->nowAngle.yaw   = this->eulerAngle.yaw;
+
+	/* Multi-turn unwrap, unchanged in behaviour: realAngle accumulates turns so
+	 * Pitch.cpp / Yaw.cpp keep seeing a continuous angle. */
+	this->BMI_CrossRound_err();
+
+	/* Body rates in DEG/S taken DIRECTLY FROM THE GYRO, bias-corrected by the
+	 * calibration state machine. This replaces the old Euler-difference
+	 * derivative, which spiked to ~360000 deg/s at the +/-180 wrap. Axis map
+	 * matches the Euler convention above: roll<-x, pitch<-y, yaw<-z.
+	 *
+	 * dead_zoom is intentionally NOT applied. It existed to mask the
+	 * differentiation spikes; gyro-sourced rates need no dead zone, so the
+	 * effective dead zone is zero while the constructor argument is preserved. */
+	this->Anglespeed.roll  = this->imu.rate_x_dps;
+	this->Anglespeed.pitch = this->imu.rate_y_dps;
+	this->Anglespeed.yaw   = this->imu.rate_z_dps;
+
+	this->Anglespeed.Deal_roll  = this->Anglespeed.roll;
+	this->Anglespeed.Deal_pitch = this->Anglespeed.pitch;
+	this->Anglespeed.Deal_yaw   = this->Anglespeed.yaw;
+
+	/* Observability. */
+	this->sensor_data.temperature = this->imu.temperature_degc;
+	this->sensor_data.calibration = this->imu.calibration_complete ? 1 : 0;
 }
 /*四元数↑*/
 

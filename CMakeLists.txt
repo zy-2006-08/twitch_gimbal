@@ -64,6 +64,24 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Control/Yaw.cpp
     App_Lib/app_gimbal.cpp
     App_Lib/main.cpp
+
+    # Ported BMI088 driver + IMU attitude pipeline (from the seven_code donor).
+    # These stay .c and are compiled as C; the C++ side talks to imu_facade.h.
+    IMU_Lib/bmi088_accel.c
+    IMU_Lib/bmi088_gyro.c
+    IMU_Lib/bmi088_spi_adapter.c
+    IMU_Lib/imu_angular_acceleration.c
+    IMU_Lib/imu_attitude.c
+    IMU_Lib/imu_calibration.c
+    IMU_Lib/imu_drift.c
+    IMU_Lib/imu_facade.c
+    IMU_Lib/imu_pipeline.c
+    IMU_Lib/imu_pipeline_heading.c
+    IMU_Lib/imu_quaternion.c
+    IMU_Lib/imu_stationarity.c
+    IMU_Lib/imu_stationary_experiment.c
+    IMU_Lib/imu_temperature_gate.c
+    IMU_Lib/imu_zaru.c
 )
 
 # These .c files include C++ application/library headers.
@@ -82,6 +100,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     RM2023_Lib_V1.2
     CH010
     App_Lib
+    IMU_Lib
 )
 
 # Add project symbols (macros)
