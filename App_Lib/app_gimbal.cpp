@@ -24,6 +24,14 @@
 #define CHASSIS_SPIN_FF_CAN_ID 0x116
 #define PI 3.1415926
 #define JG_ON HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET)
+#define JG_OFF HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET)
+
+// 激光模拟弹丸: 自瞄开启 且 视觉下发 mode==2(瞄准+开火) 时 25Hz 闪烁, 其余时间常灭
+// 由 htim7 (1kHz, 1ms) 驱动, 周期 40ms = 亮 20ms + 灭 20ms
+#define LASER_BLINK_PERIOD_MS 40U
+#define LASER_BLINK_ON_MS 20U
+// 视觉帧超时: 超过该时间没收到新帧, 视为视觉掉线, 不再沿用旧的 mode==2
+#define LASER_VISION_TIMEOUT_MS 100U
 
 #define PRINTF(x) INFO(#x "=%.1f\n", (x))
 #define PRINTF_INFO(x) INFO(#x "=%d\n", (x));
@@ -90,6 +98,9 @@ static uint8_t start_yaw = 0, start_pitch = 0, time_yaw = 0;
 
 UpDown_check_class UD_E(0), UD_SpeedUp(0), UD_SpeedDown(0), UD_Buff(0), UD_YK_BoPan(0), UD_BoPan_lian(0), UD_GenSui(0), UD_l(0), UD_ch0_exceed_600(0), UD_Laser(0);
 UpDown_check_class UD_GenSui_chance(0);
+// ch2 推到底的上升沿检测器 + 开关锁存(0=关 1=开), 用法同 Shoot.cpp 的 UD_BP_FIRE
+UpDown_check_class UD_ch2_Zimiao(0);
+static uint8_t ch2_zimiao_latch = 0;
 YKStateTransitionDetector YK_MODE_SW_C_N(0), YK_MODE_SW_C_S(0), YK_MODE_SW_N_C(0), YK_MODE_SW_S_C(0);
 
 static void MODE_DEAL(void)
@@ -195,7 +206,31 @@ static void jianshu_deal(void)
   else
     jianshu_flag = PROTECT_MODE;
 
-  if (YK.shubiao.press_r || YK.yaogan.v < -600)
+  // 原条件: YK.shubiao.press_r || YK.yaogan.v < -600
+  // 左拨轮(yaogan.v)不可用, 改用右摇杆左右(ch2)推到底开自瞄。
+  //
+  // ⚠ 不要写成 (ch0 > 600 && ch1 < -600) 这种双轴组合:
+  //   ch0/ch1 是同一根摇杆的两个轴, DR16 摇杆是圆形限位而非方形,
+  //   推到对角极限时单轴分量只有 660*0.707≈467, 永远到不了 600,
+  //   条件恒为假 —— 这是之前"死活不进判断"的原因。
+  //   另外 ch1 还被 Shoot.cpp:59 用作摩擦轮开关, 复用会互相干扰。
+  //
+  // 为什么选 ch2: 全工程只有 Yaw.cpp:180 读它(手动 yaw 微调),
+  // 而自瞄一开 YAW_Mode 就变 AUTO_MODE(app_gimbal.cpp:120-122),
+  // 那条手动通路不再执行, 不存在争用。
+  // 阈值沿用 600, 与 Shoot.h 的 P_YG/N_YG 同量级。
+  //
+  // ch2 由"推着才开"改为"点一下开 / 再点一下关"的翻转开关:
+  //   上升沿只在单个周期内为真, 不能直接当条件用(下一周期就会被 else 清零,
+  //   自瞄只亮一帧)。所以用沿去翻转 ch2_zimiao_latch, 由锁存值维持状态。
+  //   updata() 必须每周期无条件调用一次, 不能放在 || 右侧被短路,
+  //   否则按住右键期间内部 bit 停更, 松手后第一次拨杆的沿会丢。
+  if ((UD_ch2_Zimiao.updata(YK.yaogan.ch1 < -600) == UpDown_check_rising) && YK_Mode == SHOOT_MODE)
+  {
+    ch2_zimiao_latch = !ch2_zimiao_latch;
+  }
+
+  if (YK.shubiao.press_r || ch2_zimiao_latch)
   {
     request.zimiao_status = 1;
     Right_Flag = 1;
@@ -288,6 +323,43 @@ static uint8_t start_deal(void)
   return open;
 }
 
+// 1ms 调用一次 (htim7 中断)
+static void Laser_Deal(void)
+{
+  static uint32_t last_rx_count = 0;
+  static uint16_t vision_lost_ms = LASER_VISION_TIMEOUT_MS;
+  static uint8_t blink_ms = 0;
+
+  // 用头尾帧计数判断视觉是否还在持续发数据
+  const uint32_t rx_count = Zm_rx_good_count;
+  if (rx_count != last_rx_count)
+  {
+    last_rx_count = rx_count;
+    vision_lost_ms = 0;
+  }
+  else if (vision_lost_ms < LASER_VISION_TIMEOUT_MS)
+  {
+    vision_lost_ms++;
+  }
+
+  const uint8_t fire_cmd = request.zimiao_status && SuperPower.mode == 2 && vision_lost_ms < LASER_VISION_TIMEOUT_MS;
+
+  if (fire_cmd)
+  {
+    // 进入开火状态第一帧即点亮, 之后按 40ms 周期翻转
+    if (blink_ms < LASER_BLINK_ON_MS)
+      JG_ON;
+    else
+      JG_OFF;
+    blink_ms = (blink_ms + 1) % LASER_BLINK_PERIOD_MS;
+  }
+  else
+  {
+    JG_OFF;
+    blink_ms = 0;
+  }
+}
+
 static float ZM_Angle_Deal(float ZM_Angle, float Now_Angle, float Now_Current_Angle)
 {
   float diff = ZM_Angle - Now_Angle;
@@ -312,7 +384,6 @@ void App_Gimbal_Init(void)
 
 void App_Gimbal_Loop(void)
 {
-  JG_ON;
   MODE_DEAL();
   mcl->MCL_while_layer(YK_Mode);
   bp->BP_while_layer();
@@ -355,6 +426,7 @@ void App_Gimbal_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   {
     GIMBAL_088.analyse();
     bp->BP_time_out();
+    Laser_Deal();
   }
   if (htim == &htim2)
   {
@@ -471,8 +543,20 @@ void App_Gimbal_USART1_IRQHandler(void)
 void App_Gimbal_USART2_IRQHandler(void)
 {
   uint32_t temp;
+
+  /* ORE (overrun) 未处理会让接收永久停摆,必须清掉并重启 DMA */
+  if (__HAL_UART_GET_FLAG(&MINI_PC_USART_HANDLE, UART_FLAG_ORE) != RESET)
+  {
+    Zm_ore_count++;
+    __HAL_UART_CLEAR_OREFLAG(&MINI_PC_USART_HANDLE);
+    HAL_UART_DMAStop(&MINI_PC_USART_HANDLE);
+    HAL_UART_Receive_DMA(&MINI_PC_USART_HANDLE, (uint8_t *)Mini_PC_rx_buf, 128);
+    return;
+  }
+
   if ((__HAL_UART_GET_FLAG(&MINI_PC_USART_HANDLE, UART_FLAG_IDLE) != RESET))
   {
+    Zm_rx_idle_count++;
     __HAL_UART_CLEAR_IDLEFLAG(&MINI_PC_USART_HANDLE);
     temp = MINI_PC_USART_HANDLE.Instance->SR;
     temp = MINI_PC_USART_HANDLE.Instance->DR;

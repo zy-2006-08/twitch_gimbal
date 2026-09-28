@@ -146,7 +146,7 @@ f *MCL::MCL_deal(u8 YK_Mode)
     if ((mcl->Update_Flag & 0x3) == 0x3)
     {
         const float desired_speed = mcl->Mode ? (mcl->MCL_Speed + mcl->MCL_Change) : 0.0f;
-        const uint32_t now = bp_fire_tick_1ms;   // TIM7 1kHz, 不用 HAL_GetTick
+        const uint32_t now = HAL_GetTick();
         uint32_t dt_ms = 0;
 
         if (mcl->Last_Ramp_Tick != 0)
@@ -476,9 +476,7 @@ void BP::BP_Energy()
 
 void BP::BP_time_out(void)
 {
-    // TIM7 1kHz 计数, 不用 HAL_GetTick. 最小取 1: 原逻辑用 Last_Blockage_Recovery_Tick==0
-    // 表示“从未恢复过”, 防止上电第 0 个 tick 触发恢复时被误判.
-    const uint32_t now_tick = (bp_fire_tick_1ms == 0) ? 1u : bp_fire_tick_1ms;
+    const uint32_t now_tick = HAL_GetTick();
     const u8 recovery_ready = (bp->Last_Blockage_Recovery_Tick == 0) ||
                               ((now_tick - bp->Last_Blockage_Recovery_Tick) >= BP_RECOVERY_MIN_INTERVAL_MS);
     const u8 use_continuous_pid = bp->Continuous_shooting_flag;

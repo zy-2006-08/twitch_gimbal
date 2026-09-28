@@ -1,0 +1,132 @@
+/*********************************************************************
+*                    SEGGER Ozone Project File                       *
+**********************************************************************
+
+File          : twitch_gimbal_win.jdebug
+Target        : STM32F405RGT6  (Cortex-M4F)
+Ozone Version : V3.50a
+Purpose       : Windows 本机调试配置。
+
+与 twitch_gimbal_debug.jdebug 的区别:
+  - HostIF 使用 USB 自动检测，不写死 J-Link 序列号
+  - 移除失效的 Linux 路径替换 (/home/yorkuy/...)
+    当前 build/Debug/twitch_gimbal.elf 内记录的调试路径已是
+    D:/RM27_zimiao/... 与本机一致，无需路径映射
+  - SWD 速度降至 4 MHz，提升非原装探针的连接稳定性
+  - 目标停止时自动打印 Cortex-M 故障寄存器
+*/
+
+/*********************************************************************
+*
+*       OnProjectLoad
+*
+* Function description
+*   Project load routine. Required.
+*
+**********************************************************************
+*/
+void OnProjectLoad (void) {
+  //
+  // 目标器件与调试接口
+  //
+  Project.SetDevice ("STM32F405RG");
+  Project.SetHostIF ("USB", "");      // 空字符串 = 自动检测已连接的 J-Link
+  Project.SetTargetIF ("SWD");
+  Project.SetTIFSpeed ("4 MHz");      // 连接稳定后可改回 "10 MHz"
+  //
+  // 寄存器视图 (SVD)
+  // STM32F405 无官方 SVD，沿用 F407IG：内核与多数外设寄存器布局一致。
+  // 注意 F405 实际无 ETH / FSMC / DCMI，这几个外设视图请忽略。
+  //
+  Project.AddSvdFile ("$(InstallDir)/Config/CPU/Cortex-M4F.svd");
+  Project.AddSvdFile ("$(InstallDir)/Config/Peripherals/STM32F407IG.svd");
+  //
+  // 载入调试目标
+  //
+  File.Open ("$(ProjectDir)/build/Debug/twitch_gimbal.elf");
+}
+
+/*********************************************************************
+*
+*       AfterTargetHalt
+*
+* Function description
+*   Event handler routine. Called every time the target halts.
+*   Dumps Cortex-M fault status so a HardFault can be diagnosed
+*   without manually poking SCB registers.
+*
+* Register reference (ARMv7-M, SCB)
+*   CFSR  0xE000ED28   = UFSR[31:16] : BFSR[15:8] : MMFSR[7:0]
+*   HFSR  0xE000ED2C   bit30 FORCED, bit1 VECTTBL
+*   MMFAR 0xE000ED34   valid when MMFSR bit7  (MMARVALID)
+*   BFAR  0xE000ED38   valid when BFSR  bit15 (BFARVALID)
+*
+**********************************************************************
+*/
+void AfterTargetHalt (void) {
+  unsigned int CFSR;
+  unsigned int HFSR;
+
+  CFSR = Target.ReadU32(0xE000ED28);
+  HFSR = Target.ReadU32(0xE000ED2C);
+
+  if ((CFSR != 0) || (HFSR != 0)) {
+    Util.Log("=== Cortex-M fault status ===");
+    Util.Log("CFSR  = " + CFSR);
+    Util.Log("HFSR  = " + HFSR);
+    //
+    // BFSR bit15 -> BFAR holds the offending bus address
+    //
+    if ((CFSR & 0x00008000) != 0) {
+      Util.Log("BFAR  = " + Target.ReadU32(0xE000ED38) + "   <-- offending bus address");
+    }
+    //
+    // MMFSR bit7 -> MMFAR holds the offending memory address
+    //
+    if ((CFSR & 0x00000080) != 0) {
+      Util.Log("MMFAR = " + Target.ReadU32(0xE000ED34) + "   <-- offending memory address");
+    }
+  }
+}
+
+/*********************************************************************
+*
+*       AfterTargetReset
+*
+* Function description
+*   Event handler routine.
+*
+**********************************************************************
+*/
+void AfterTargetReset (void) {
+  _SetupTarget();
+}
+
+/*********************************************************************
+*
+*      AfterTargetDownload
+*
+* Function description
+*   Event handler routine.
+*
+**********************************************************************
+*/
+void AfterTargetDownload (void) {
+  _SetupTarget();
+}
+
+/*********************************************************************
+*
+*       _SetupTarget
+*
+* Function description
+*   Setup the target.
+*   Called by AfterTargetReset() and AfterTargetDownload().
+*
+**********************************************************************
+*/
+void _SetupTarget(void) {
+  //
+  // 初始 SP / PC 沿用复位向量表中的值，无需手动设置。
+  //
+}

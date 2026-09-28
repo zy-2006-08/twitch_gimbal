@@ -3,7 +3,7 @@
 uint8_t Mini_PC_info_ubuf[MINI_PC_BUF_SIZE];
 uint8_t Mini_PC_tx_buf[128];
 uint8_t Mini_PC_rx_buf[128];
-//Êı¾İÊÕ·¢µ¥Ìå
+//ï¿½ï¿½ï¿½ï¿½ï¿½Õ·ï¿½ï¿½ï¿½ï¿½ï¿½
 volatile _request request;      
 volatile _response  response;
 volatile _type_zm   AS;
@@ -13,12 +13,23 @@ _request_union request_union;
 #include "main.h"
 #include "stdio.h"
 #include "RM_Lib.h"
-//CRCĞ£Ñé
+//CRCĞ£ï¿½ï¿½
 
 extern BMI088 GIMBAL_088;
 extern uint8_t Right_Flag;
 extern u8 buff_mode;
 static u8 auto_shoot_mode;
+
+/* ==== è‡ªç„é€šè®¯è¯Šæ–­è®¡æ•°å™¨ (ä¸´æ—¶æ’æŸ¥ç”¨) ==== */
+volatile uint32_t Zm_tx_ok_count    = 0;  /* HAL_OK: DMA æˆåŠŸæ¥å—å‘é€è¯·æ±‚ */
+volatile uint32_t Zm_tx_busy_count  = 0;  /* HAL_BUSY/ERROR: ä¸Šä¸€å¸§æœªå‘å®Œï¼Œæœ¬å¸§è¢«ä¸¢å¼ƒ */
+volatile uint32_t Zm_rx_idle_count  = 0;  /* USART2 IDLE ä¸­æ–­æ¬¡æ•° */
+volatile uint32_t Zm_rx_good_count  = 0;  /* å¤´å°¾å¸§æ ¡éªŒé€šè¿‡ */
+volatile uint32_t Zm_rx_bad_count   = 0;  /* å¤´å°¾å¸§æ ¡éªŒå¤±è´¥ */
+volatile uint32_t Zm_rx_crc_ok      = 0;  /* CRC16 æ ¡éªŒé€šè¿‡ (ä»…ç»Ÿè®¡,ä¸æ‹¦æˆª) */
+volatile uint32_t Zm_rx_crc_bad     = 0;  /* CRC16 æ ¡éªŒå¤±è´¥ (ä»…ç»Ÿè®¡,ä¸æ‹¦æˆª) */
+volatile uint32_t Zm_ore_count      = 0;  /* UART overrun é”™è¯¯æ¬¡æ•° */
+volatile uint8_t  Zm_rx_last[29];         /* æœ€åä¸€å¸§åŸå§‹å­—èŠ‚,ç”¨äºäººå·¥æ ¸å¯¹ */
 uint16_t get_crc16(const uint8_t * data, uint32_t len)
 {
       uint16_t crc16 = CRC16_INIT;
@@ -47,7 +58,7 @@ uint8_t cal_crc_table(uint8_t *ptr, uint8_t len)
  	
     while (len--)
     {
-        crc = crc_table[crc ^ *ptr++];//Òì»ò£¨XOR£©²Ù×÷
+        crc = crc_table[crc ^ *ptr++];//ï¿½ï¿½ï¿½XORï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     }
     return (crc);
 }
@@ -60,7 +71,7 @@ void Mini_PC_Init(void)
 	__HAL_UART_ENABLE_IT(&MINI_PC_USART_HANDLE, UART_IT_IDLE);
 	HAL_UART_Receive_DMA(&MINI_PC_USART_HANDLE,(uint8_t *)Mini_PC_rx_buf,128);
 }
-//TJ(ÓÃÕâ¸ö)
+//TJ(ï¿½ï¿½ï¿½ï¿½ï¿½)
 void    Mini_PC_SendData()
 {
 	if(buff_mode == 1) auto_shoot_mode = 2;
@@ -104,7 +115,10 @@ void    Mini_PC_SendData()
 		AS.crc_Num.typeMum = get_crc16(Mini_PC_tx_buf,27);
 		Mini_PC_tx_buf[27] = AS.crc_Num.c[0];
         Mini_PC_tx_buf[28] = AS.crc_Num.c[1];
-        HAL_UART_Transmit_DMA(&MINI_PC_USART_HANDLE, (uint8_t *)Mini_PC_tx_buf, 29);		
+        if (HAL_UART_Transmit_DMA(&MINI_PC_USART_HANDLE, (uint8_t *)Mini_PC_tx_buf, 29) == HAL_OK)
+            Zm_tx_ok_count++;
+        else
+            Zm_tx_busy_count++;
 }
 
 void GetReceive_SP(uint8_t (*buf))
@@ -112,18 +126,27 @@ void GetReceive_SP(uint8_t (*buf))
     //Í·Î²Ö¡
     if(buf[0] == SP_HEADER && buf[28] == SP_TAIL)
     {
-//       if(check_crc16(buf,29))       //²»ÓÃCRCÁË Ò»Ö±¹ı²»È¥ Í·Î²Ö¡¾ÍĞĞÁË
+           Zm_rx_good_count++;
+           for (int _i = 0; _i < 29; _i++) Zm_rx_last[_i] = buf[_i];
+           /* CRC ä»…ç»Ÿè®¡,ä¸æ”¹å˜åŸæœ‰æ”¾è¡Œé€»è¾‘ */
+           if (check_crc16(buf,29)) Zm_rx_crc_ok++; else Zm_rx_crc_bad++;
+//       if(check_crc16(buf,29))       //ï¿½ï¿½ï¿½ï¿½CRCï¿½ï¿½ Ò»Ö±ï¿½ï¿½ï¿½ï¿½È¥ Í·Î²Ö¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 //       {
            SuperPower.mode = buf[1];                               //Ä£Ê½
-           UnpackFloatSafe_Zm(buf,SP_OFFSET_YAW,&SuperPower.yaw,GIMBAL_088.realAngle.yaw);     //YAW¾ø¶Ô½Ç
-           UnpackFloatSafe(buf,SP_OFFSET_YAW_VEL,&SuperPower.yaw_vel);        //½ÇËÙ¶È
-           UnpackFloatSafe(buf,SP_OFFSET_YAW_ACC,&SuperPower.yaw_acc);        //½Ç¼ÓËÙ¶È
+           UnpackFloatSafe_Zm(buf,SP_OFFSET_YAW,&SuperPower.yaw,GIMBAL_088.realAngle.yaw);     //YAWï¿½ï¿½ï¿½Ô½ï¿½
+           UnpackFloatSafe(buf,SP_OFFSET_YAW_VEL,&SuperPower.yaw_vel);        //ï¿½ï¿½ï¿½Ù¶ï¿½
+           UnpackFloatSafe(buf,SP_OFFSET_YAW_ACC,&SuperPower.yaw_acc);        //ï¿½Ç¼ï¿½ï¿½Ù¶ï¿½
            UnpackFloatSafe_Zm(buf,SP_OFFSET_PITCH,&SuperPower.pitch,GIMBAL_088.realAngle.roll);
            UnpackFloatSafe(buf,SP_OFFSET_PITCH_VEL,&SuperPower.pitch_vel);
            UnpackFloatSafe(buf,SP_OFFSET_PITCH_ACC,&SuperPower.pitch_acc); 
        //....
 //       }
        
+    }
+    else
+    {
+        Zm_rx_bad_count++;
+        for (int _i = 0; _i < 29; _i++) Zm_rx_last[_i] = buf[_i];
     }
 }
 
@@ -191,12 +214,12 @@ void Mini_PC_newSendData(float pitchAngle,float YawAngle,uint8_t color,uint8_t b
 void Mini_PC_SendData()
 {
 	Mini_PC_tx_buf[0] = 0x38;	// SOF
-	Mini_PC_tx_buf[1] = 0x00;	// ÇåÁã
+	Mini_PC_tx_buf[1] = 0x00;	// ï¿½ï¿½ï¿½ï¿½
 
-	Mini_PC_tx_buf[1] |= (request.close_PC_status << 3) & 0x08;		//1   ¹Ø»ú
-	Mini_PC_tx_buf[1] |= (request.buff_status << 2) & 0x04;			  //1   ·û
-	Mini_PC_tx_buf[1] |= (request.adjust_camera << 1) & 0x02;			//1    ±ê¶¨Ïà»ú
-	Mini_PC_tx_buf[1] |= (request.mine << 0) & 0x01;						  //    ºìÀ¶·½
+	Mini_PC_tx_buf[1] |= (request.close_PC_status << 3) & 0x08;		//1   ï¿½Ø»ï¿½
+	Mini_PC_tx_buf[1] |= (request.buff_status << 2) & 0x04;			  //1   ï¿½ï¿½
+	Mini_PC_tx_buf[1] |= (request.adjust_camera << 1) & 0x02;			//1    ï¿½ê¶¨ï¿½ï¿½ï¿½
+	Mini_PC_tx_buf[1] |= (request.mine << 0) & 0x01;						  //    ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	
 	Mini_PC_tx_buf[2] =  request.shooter_speed_limit;  
 
@@ -220,12 +243,12 @@ void Mini_PC_SendData()
 {
 
 	Mini_PC_tx_buf[0] = 0x38;	// SOF
-	Mini_PC_tx_buf[1] = 0x00;	// ÇåÁã
+	Mini_PC_tx_buf[1] = 0x00;	// ï¿½ï¿½ï¿½ï¿½
 
-	Mini_PC_tx_buf[1] |= (request.close_PC_status << 3) & 0x08;		//1   ¹Ø»ú
-	Mini_PC_tx_buf[1] |= (request.buff_status << 2) & 0x04;			  //1   ·û
-	Mini_PC_tx_buf[1] |= (request.adjust_camera << 1) & 0x02;			//1    ±ê¶¨Ïà»ú
-	Mini_PC_tx_buf[1] |= (request.mine << 0) & 0x01;						  //    ºìÀ¶·½
+	Mini_PC_tx_buf[1] |= (request.close_PC_status << 3) & 0x08;		//1   ï¿½Ø»ï¿½
+	Mini_PC_tx_buf[1] |= (request.buff_status << 2) & 0x04;			  //1   ï¿½ï¿½
+	Mini_PC_tx_buf[1] |= (request.adjust_camera << 1) & 0x02;			//1    ï¿½ê¶¨ï¿½ï¿½ï¿½
+	Mini_PC_tx_buf[1] |= (request.mine << 0) & 0x01;						  //    ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	
 	Mini_PC_tx_buf[2] = request.shooter_speed_limit;  
 
@@ -299,7 +322,7 @@ void getReceiveData(uint8_t (*buf))
 
 		extern Vision_process_t Vision_process;  
 		extern Kf  kalman_speedYaw1,kalman_accel1,kalman_distend1;
-		extern float lastupdate_cloud_yaw,update_cloud_yaw;	//¼ÇÂ¼ÊÓ¾õ¸üĞÂÊı¾İÊ±µÄÔÆÌ¨Êı¾İ£¬¸øÏÂ´Î½ÓÊÕÓÃ
+		extern float lastupdate_cloud_yaw,update_cloud_yaw;	//ï¿½ï¿½Â¼ï¿½Ó¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½Ì¨ï¿½ï¿½ï¿½İ£ï¿½ï¿½ï¿½ï¿½Â´Î½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 
 		extern float Pitch_goal,Yaw_goal;
@@ -320,7 +343,7 @@ void getReceiveData(uint8_t (*buf))
 			lost++;
 			active_cnt=0;
 			Vision_process.feedforwaurd_angle = 0;
-			Vision_process.predict_angle = 0;//Çå0Ô¤²â½Ç
+			Vision_process.predict_angle = 0;//ï¿½ï¿½0Ô¤ï¿½ï¿½ï¿½
 
 			Vision_process.accel_get=0;
 			Vision_process.speed_get_last=0;
@@ -336,12 +359,12 @@ void getReceiveData(uint8_t (*buf))
 			{			
 				if(YK.yaogan.s2==YK_SW_MID||YK.yaogan.s2==YK_SW_DOWN)
 				{					
-					if(request.buff_status)  //·û
+					if(request.buff_status)  //ï¿½ï¿½
 					{					
-						Yaw_goal = BMI088_Yaw.sensor_data.mang.z-response.yaw.f;	//BMI088»òÕßADXRS453ÍÓÂİÒÇÁ¿ÓëPID±Õ»·µÄµ±Ç°Á¿Ò»ÖÂ£¬¡ÀºÅ¿´Êµ¼ÊÀ´µ÷£¬ÒÔÏÂ¶¼ÊÇ£¡£¡£¡£¡£¡
+						Yaw_goal = BMI088_Yaw.sensor_data.mang.z-response.yaw.f;	//BMI088ï¿½ï¿½ï¿½ï¿½ADXRS453ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½PIDï¿½Õ»ï¿½ï¿½Äµï¿½Ç°ï¿½ï¿½Ò»ï¿½Â£ï¿½ï¿½ï¿½ï¿½Å¿ï¿½Êµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Â¶ï¿½ï¿½Ç£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 						Pitch_goal = BMI088_Pitch.sensor_data.mang.y-response.pitch.f;
 					}					
-					else //×ÔÃé
+					else //ï¿½ï¿½ï¿½ï¿½
 					{
 						if(active_cnt>150)
 						{
@@ -354,7 +377,7 @@ void getReceiveData(uint8_t (*buf))
 							Vision_process.eeror=0;
 						}
 						
-						Yaw_goal = BMI088_Yaw.sensor_data.mang.z-response.yaw.f + Vision_process.predict_angle;//Vision_process.predict_angleÊÇÔ¤²â½Ç
+						Yaw_goal = BMI088_Yaw.sensor_data.mang.z-response.yaw.f + Vision_process.predict_angle;//Vision_process.predict_angleï¿½ï¿½Ô¤ï¿½ï¿½ï¿½
 						Pitch_goal = BMI088_Pitch.sensor_data.mang.y-response.pitch.f;
 					}
 				}
@@ -446,14 +469,14 @@ void getReceiveData(uint8_t (*buf))
 **/
 /*
 	unsigned char USB_Received_Count;
-	uint8_t i; //²é¿´½ÓÊÕÊı¾İ³¤
-	USB_Received_Count = USBD_GetRxCount( &hUsbDeviceFS,CUSTOM_HID_EPOUT_ADDR );  //µÚÒ»²ÎÊıÊÇUSB¾ä±ú£¬µÚ¶ş¸ö²ÎÊıµÄÊÇ½ÓÊÕµÄÄ©¶ËµØÖ·£»Òª»ñÈ¡·¢ËÍµÄÊı¾İ³¤¶ÈµÄ»°¾Í°ÑµÚ¶ş¸ö²ÎÊı¸ÄÎª·¢ËÍÄ©¶ËµØÖ·¼´¿É
-	USBD_CUSTOM_HID_HandleTypeDef   *hhid; //¶¨ÒåÒ»¸öÖ¸ÏòUSBD_CUSTOM_HID_HandleTypeDef½á¹¹ÌåµÄÖ¸Õë
-	hhid = (USBD_CUSTOM_HID_HandleTypeDef*)hUsbDeviceFS.pClassData;//µÃµ½USB½ÓÊÕÊı¾İµÄ´¢´æµØÖ·
+	uint8_t i; //ï¿½é¿´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½İ³ï¿½
+	USB_Received_Count = USBD_GetRxCount( &hUsbDeviceFS,CUSTOM_HID_EPOUT_ADDR );  //ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½USBï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç½ï¿½ï¿½Õµï¿½Ä©ï¿½Ëµï¿½Ö·ï¿½ï¿½Òªï¿½ï¿½È¡ï¿½ï¿½ï¿½Íµï¿½ï¿½ï¿½ï¿½İ³ï¿½ï¿½ÈµÄ»ï¿½ï¿½Í°ÑµÚ¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½ï¿½ï¿½Ä©ï¿½Ëµï¿½Ö·ï¿½ï¿½ï¿½ï¿½
+	USBD_CUSTOM_HID_HandleTypeDef   *hhid; //ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½Ö¸ï¿½ï¿½USBD_CUSTOM_HID_HandleTypeDefï¿½á¹¹ï¿½ï¿½ï¿½Ö¸ï¿½ï¿½
+	hhid = (USBD_CUSTOM_HID_HandleTypeDef*)hUsbDeviceFS.pClassData;//ï¿½Ãµï¿½USBï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½İµÄ´ï¿½ï¿½ï¿½ï¿½Ö·
 	
 	for(i=0;i<USB_Received_Count;i++) 
 	{
-			Mini_PC_rx_buf[i]=hhid->Report_buf[i];  //°Ñ½ÓÊÕµ½µÄÊı¾İËÍµ½×Ô¶¨ÒåµÄ»º´æÇø±£´æ£¨Report_buf[i]ÎªUSBµÄ½ÓÊÕ»º´æÇø£©
+			Mini_PC_rx_buf[i]=hhid->Report_buf[i];  //ï¿½Ñ½ï¿½ï¿½Õµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Íµï¿½ï¿½Ô¶ï¿½ï¿½ï¿½Ä»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½æ£¨Report_buf[i]ÎªUSBï¿½Ä½ï¿½ï¿½Õ»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	}
 // ********************************
 

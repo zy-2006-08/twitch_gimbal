@@ -268,6 +268,17 @@ void GetReceive_SP(uint8_t (*buf));
 extern uint8_t cal_crc_table(uint8_t *ptr, uint8_t len);
 extern void Mini_PC_newSendData(float pitchAngle,float YawAngle,uint8_t color,uint8_t buff);
 
+/* ==== 自瞄通讯诊断计数器 (临时排查用) ==== */
+extern volatile uint32_t Zm_tx_ok_count;
+extern volatile uint32_t Zm_tx_busy_count;
+extern volatile uint32_t Zm_rx_idle_count;
+extern volatile uint32_t Zm_rx_good_count;
+extern volatile uint32_t Zm_rx_bad_count;
+extern volatile uint32_t Zm_rx_crc_ok;
+extern volatile uint32_t Zm_rx_crc_bad;
+extern volatile uint32_t Zm_ore_count;
+extern volatile uint8_t  Zm_rx_last[29];
+
 #ifdef __cplusplus
 }
 #endif

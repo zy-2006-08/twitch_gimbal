@@ -128,9 +128,6 @@ void SMC_PITCH::SMC_Tick(float Target_angle, float Target_angle_vel, float Targe
     d_error = angle_vel - Target_angle_vel;
     //积分误差累加
     error_integral += error * 0.001f; // 采样周期为1ms 1000HZ
-    // 2026-09-27: anti-windup. With the gimbal pinned on a hard stop the error never
-    // goes away, the integral grew without bound, and C2=25 then kicked the gimbal 5+ deg.
-    error_integral = LIMIT(error_integral, -1.0f, 1.0f);
 
     // 3. 滑模面
     s = C * error + d_error + C2 * error_integral;

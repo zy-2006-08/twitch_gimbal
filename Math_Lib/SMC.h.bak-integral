@@ -337,10 +337,6 @@ class SMC_PITCH{
     C(C), K(K), C2(c2), error_eps(error_eps), u_max(u_max), J(J), epsilon(epsilon) {};
     float gm6020to_torq(float u);
     void  SMC_Tick(float Target_angle, float Target_angle_vel, float Target_angle_acc, float angle, float angle_vel);
-    // 2026-09-27: clear integral on mode switch. error_integral is private and was never reset,
-    // so integral wound up in one mode carried into the next (C2=25 in auto-aim, 25x manual).
-    void  ResetIntegral() { error_integral = 0.0f; }
-    float Integral() const { return error_integral; }  // debug: expose integral to scope
 
     private:
     float error_last;

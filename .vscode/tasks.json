@@ -1,0 +1,39 @@
+{
+    // Note: a broken MSYS2 cmake sits in the machine-level PATH and shadows the
+    // working one in the user PATH. Prepending the good cmake bin dir here keeps
+    // the build task working from any shell without touching system PATH.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "cmake --build --preset Debug",
+            "options": {
+                "cwd": "${fileWorkspaceFolder}",
+                "env": {
+                    "PATH": "C:\\Tools\\cmake-4.4.0-rc3-windows-x86_64\\cmake-4.4.0-rc3-windows-x86_64\\bin;${env:PATH}"
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "flash",
+            "type": "shell",
+            "command": "powershell -ExecutionPolicy Bypass -File \"${fileWorkspaceFolder}\\scripts\\flash.ps1\"",
+            "problemMatcher": []
+        },
+        {
+            "label": "build and flash",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "build",
+                "flash"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

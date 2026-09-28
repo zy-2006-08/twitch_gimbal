@@ -340,7 +340,6 @@ class SMC_PITCH{
     // 2026-09-27: clear integral on mode switch. error_integral is private and was never reset,
     // so integral wound up in one mode carried into the next (C2=25 in auto-aim, 25x manual).
     void  ResetIntegral() { error_integral = 0.0f; }
-    float Integral() const { return error_integral; }  // debug: expose integral to scope
 
     private:
     float error_last;

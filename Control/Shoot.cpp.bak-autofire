@@ -22,51 +22,6 @@ static u8 buff_flag = 1;
 extern u8 buff_mode;
 static uint16_t test_flag_1,test_flag_2;
 
-// ================= AutoFire: level-triggered + rate limit (TIM7 1kHz tick) =================
-// 2026-09-27. 原来视觉开火只认 SuperPower.mode==2 的上升沿(UD_BP_FIRE):
-//   目标静止时视觉持续发 2, 只有第一帧是上升沿 -> 只打一发就停;
-//   目标转起来 fire 随板子进出容差窗口反复翻转 -> 每翻一次打一发, 射频不受控.
-// 现在: mode==2 表示“允许开火”(电平), 电控按固定间隔出弹.
-//
-// 计时基准: bp_fire_tick_1ms, 在 TIM7 中断里的 BP_time_out() 中每次 +1.
-//   TIM7: APB1 定时器时钟 84MHz / (Prescaler 84) / (Period 1000) = 精确 1kHz.
-//   不用 HAL_GetTick(): 它依赖 SysTick 中断, 被高优先级中断抢占时会掉拍.
-//   不用调用次数: BP_deal 在 CAN2 接收回调里调用, 频率随总线负载变化.
-//
-// AUTOFIRE_INTERVAL_TICKS: 两发最小间隔, 单位 TIM7 tick(1ms). 40 = 25Hz 上限.
-//   拨盘物理上未必转得这么快: 一发 BOPAN_ANGLE=36864 计数 = 电机 4.5 圈,
-//   25Hz 需约 6750rpm, 接近 M2006 空载极限. 下面的“拨盘跟上”门控会把实际射频
-//   自动压到拨盘能达到的速度, 不会因为跟不上而把目标角无限累加.
-// 热量限制暂未加(按要求先不管热量), 上场前必须补上.
-#define AUTOFIRE_INTERVAL_TICKS  40u
-
-volatile uint32_t bp_fire_tick_1ms = 0;   // TIM7 1kHz, 在 BP_time_out() 中递增
-static uint32_t autofire_last_tick = 0;
-
-// 返回 1 表示本周期应该出一发. 只判断条件, 不改拨盘目标.
-static u8 AutoFire_Ready(void)
-{
-    const uint32_t now = bp_fire_tick_1ms;
-    if ((uint32_t)(now - autofire_last_tick) < AUTOFIRE_INTERVAL_TICKS) return 0;
-
-    // 拨盘跟上门控: 目标角比当前角超前不超过一发才允许再加一发.
-    // 目标往负方向减, 所以超前量 = 当前角 - 目标角.
-    const double lag = M2006_BP.mang_inf - bp->One_Target_Angle;
-    if (lag > (double)BOPAN_ANGLE) return 0;
-    return 1;
-}
-
-// 出一发: 在上一发目标的基础上再推进一格(不重新取当前角, 避免丢掉未走完的行程).
-static void AutoFire_Shoot(void)
-{
-    // 目标角如果落后当前角(例如刚从别的模式切过来), 先对齐到当前角
-    if (bp->One_Target_Angle > M2006_BP.mang_inf) bp->One_Target_Angle = M2006_BP.mang_inf;
-    bp->One_Target_Angle -= BOPAN_ANGLE;
-    bp->Continuous_Target_Angle = bp->One_Target_Angle;
-    // Continuous_shooting_flag 是 BP 的 private 成员, 由调用方(BP 成员函数内)清零
-    autofire_last_tick = bp_fire_tick_1ms;
-}
-
 static float ramp_towards(float current, float target, float max_delta)
 {
     float delta = target - current;
@@ -146,7 +101,7 @@ f *MCL::MCL_deal(u8 YK_Mode)
     if ((mcl->Update_Flag & 0x3) == 0x3)
     {
         const float desired_speed = mcl->Mode ? (mcl->MCL_Speed + mcl->MCL_Change) : 0.0f;
-        const uint32_t now = bp_fire_tick_1ms;   // TIM7 1kHz, 不用 HAL_GetTick
+        const uint32_t now = HAL_GetTick();
         uint32_t dt_ms = 0;
 
         if (mcl->Last_Ramp_Tick != 0)
@@ -251,22 +206,7 @@ f BP::BP_Out_Interface(u8 YK_Mode, u8 jianshu_flag)
     // 目标角度更新（原 BP_deal 逻辑）
     if (YK_Mode == SHOOT_MODE)
     {
-        // 视觉自动开火(电平触发, 射频/热量/卡弹由 AutoFire_Ready 控制)
-        const u8 vision_fire = request.zimiao_status && SuperPower.mode == 2 && mcl->Mode == 1 && Error_flag == 0
-                               && !bp->Blockage && !bp->Blockage_To_Daed;
-        // 遥控单发仍是上升沿. 原写法 A || B && C && D 因 && 优先级高于 ||,
-        // 遥控单发这一路没有检查摩擦轮和错误状态, 这里修正.
-        const u8 remote_one = (UD_BP_ON.updata(bp->ONE_ON) == UpDown_check_rising);
-        if (vision_fire && AutoFire_Ready())
-        {
-            AutoFire_Shoot();
-            Continuous_shooting_flag = 0;
-        }
-        else if (vision_fire)
-        {
-            // 允许开火但还没到下一发时间: 保持单发状态, 什么都不改
-        }
-        else if (remote_one && mcl->Mode == 1 && Error_flag == 0)
+        if (UD_BP_ON.updata(bp->ONE_ON) == UpDown_check_rising || ((UD_BP_FIRE.updata(SuperPower.mode == 2) == UpDown_check_rising)&&request.zimiao_status) && mcl->Mode == 1 && Error_flag == 0)
         {
             bp->One_Target_Angle = M2006_BP.mang_inf;
             if (abs((int32_t)M2006_BP.mang_inf % (int32_t)BOPAN_ANGLE) < 10000)
@@ -307,19 +247,7 @@ f BP::BP_Out_Interface(u8 YK_Mode, u8 jianshu_flag)
     else if (YK_Mode == PLAYER_MODE)
     {
         remain_heat = shooter_id1_17mm_cooling_limit - shooter_id1_17mm_cooling_heat;
-        const u8 vision_fire_p = request.zimiao_status && SuperPower.mode == 2 && mcl->Mode && Error_flag == 0
-                                 && !bp->Blockage && !bp->Blockage_To_Daed;
-        const u8 mouse_one = (UD_BP_DF.updata(YK.shubiao.press_l) == UpDown_check_rising);
-        if (vision_fire_p && AutoFire_Ready())
-        {
-            AutoFire_Shoot();
-            Continuous_shooting_flag = 0;
-            bp->delay_2ms = 0;
-        }
-        else if (vision_fire_p)
-        {
-        }
-        else if (mouse_one && (remain_heat > 30 || YK.Pressed_Check(KEY_PRESSED_CTRL)))
+        if ((((UD_BP_FIRE.updata(SuperPower.mode == 2) == UpDown_check_rising && request.zimiao_status)|| UD_BP_DF.updata(YK.shubiao.press_l) == UpDown_check_rising) && (remain_heat > 30 || YK.Pressed_Check(KEY_PRESSED_CTRL))))
         {
             bp->One_Target_Angle = M2006_BP.mang_inf;
             bp->One_Target_Angle -= BOPAN_ANGLE;
@@ -476,9 +404,7 @@ void BP::BP_Energy()
 
 void BP::BP_time_out(void)
 {
-    // TIM7 1kHz 计数, 不用 HAL_GetTick. 最小取 1: 原逻辑用 Last_Blockage_Recovery_Tick==0
-    // 表示“从未恢复过”, 防止上电第 0 个 tick 触发恢复时被误判.
-    const uint32_t now_tick = (bp_fire_tick_1ms == 0) ? 1u : bp_fire_tick_1ms;
+    const uint32_t now_tick = HAL_GetTick();
     const u8 recovery_ready = (bp->Last_Blockage_Recovery_Tick == 0) ||
                               ((now_tick - bp->Last_Blockage_Recovery_Tick) >= BP_RECOVERY_MIN_INTERVAL_MS);
     const u8 use_continuous_pid = bp->Continuous_shooting_flag;
@@ -520,7 +446,6 @@ void BP::BP_time_out(void)
         bp->BP_Error = 0;
 
     bp->delay_2ms++;
-    bp_fire_tick_1ms++;   // TIM7 1kHz 计时基准, 供 AutoFire 射频限制
 }
 
 f BP::BP_deal(u8 YK_Mode, u8 jianshu_flag)

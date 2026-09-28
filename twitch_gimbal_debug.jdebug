@@ -24,7 +24,7 @@ void OnProjectLoad (void) {
   //
   Project.AddPathSubstitute ("/home/yorkuy/code/twitch_gimbal", "$(ProjectDir)");
   Project.SetDevice ("STM32F405RG");
-  Project.SetHostIF ("USB", "602712707");
+  Project.SetHostIF ("USB", "");
   Project.SetTargetIF ("SWD");
   Project.SetTIFSpeed ("10 MHz");
   Project.AddSvdFile ("$(InstallDir)/Config/CPU/Cortex-M4F.svd");

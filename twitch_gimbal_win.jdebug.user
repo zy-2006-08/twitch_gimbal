@@ -1,0 +1,32 @@
+
+
+GraphedExpression="GIMBAL_088.q0_t", Color=#e56a6f, Show=0
+GraphedExpression="YK.yaogan.v", DisplayFormat=DISPLAY_FORMAT_DEC, Color=#35792b, Show=0
+GraphedExpression="YK.yaogan.ch0", Color=#769dda, Show=0
+GraphedExpression="YK.yaogan.ch1", Color=#b14f0d, Show=0
+GraphedExpression="DM_PITCH.mang ", Color=#b3c38e, Show=0
+GraphedExpression="GIMBAL_088.realAngle.roll", Color=#ab7b05, Show=0
+GraphedExpression="DM_PITCH.ERR ", Color=#7fd3b7, Show=0
+OpenDocument="DM.h", FilePath="D:/RM27_zimiao/twitch_gimbal/twitch_gimbal/Motor_Lib/DM.h", Line=0
+OpenDocument="Pitch.cpp", FilePath="D:/RM27_zimiao/twitch_gimbal/twitch_gimbal/Control/Pitch.cpp", Line=61
+OpenDocument="startup_stm32f405xx.s", FilePath="D:/RM27_zimiao/twitch_gimbal/twitch_gimbal/startup_stm32f405xx.s", Line=44
+OpenDocument="app_gimbal.cpp", FilePath="D:/RM27_zimiao/twitch_gimbal/twitch_gimbal/App_Lib/app_gimbal.cpp", Line=212
+OpenDocument="main.cpp", FilePath="D:/RM27_zimiao/twitch_gimbal/twitch_gimbal/App_Lib/main.cpp", Line=0
+OpenToolbar="Debug", Floating=0, x=0, y=0
+OpenWindow="Call Stack", DockArea=LEFT, x=0, y=1, w=294, h=330, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Memory 1", DockArea=BOTTOM, x=1, y=0, w=1281, h=216, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, EditorAddress=0x90
+OpenWindow="Watched Data 1", DockArea=LEFT, x=0, y=0, w=294, h=417, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Functions", DockArea=LEFT, x=0, y=2, w=294, h=319, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Data Sampling", DockArea=RIGHT, x=0, y=2, w=997, h=278, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
+OpenWindow="Timeline", DockArea=RIGHT, x=0, y=1, w=997, h=578, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="1 ns / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="706;0", DataGraphShowNamesAtCursor=0, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="796;0", CodeGraphLegendShown=0, CodeGraphLegendPosition="810;0"
+OpenWindow="Find Results", DockArea=RIGHT, x=0, y=0, w=997, h=210, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Console", DockArea=BOTTOM, x=0, y=0, w=1278, h=216, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+SmartViewPlugin="", Page="", Toolbar="Hidden", Window="SmartView 1"
+TableHeader="Functions", SortCol="Name", SortOrder="DESCENDING", VisibleCols=["Name";"Address";"Size";"#Insts";"Class";"Source"], ColWidths=[1869;100;100;100;189;224]
+TableHeader="Call Stack", SortCol="Function", SortOrder="ASCENDING", VisibleCols=["Function";"Stack Frame";"Source";"PC";"Return Address";"Stack Used"], ColWidths=[100;100;100;100;100;100]
+TableHeader="Data Sampling Table", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";" GIMBAL_088.q0_t";" YK.yaogan.v";" YK.yaogan.ch0";" YK.yaogan.ch1";" DM_PITCH.mang ";" GIMBAL_088.realAngle.roll";" DM_PITCH.ERR "], ColWidths=[100;100;100;100;100;100;100;100;100]
+TableHeader="Data Sampling Setup", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Type";"Value";"Min";"Max";"Average";"# Changes";"Min. Change";"Max. Change"], ColWidths=[196;100;110;110;126;134;102;126;110]
+TableHeader="Power Sampling", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";"Ch 0"], ColWidths=[100;100;100]
+TableHeader="Watched Data 1", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Value";"Location";"Refresh";"Access"], ColWidths=[154;100;100;100;100]
+TableHeader="RegisterSelectionDialog", SortCol="None", SortOrder="ASCENDING", VisibleCols=[], ColWidths=[]
+TableHeader="TargetExceptionDialog", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Address";"Description"], ColWidths=[200;100;100;351]

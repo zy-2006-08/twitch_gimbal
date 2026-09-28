@@ -19,24 +19,9 @@ PID_class PID_Pitch_sp_zm(0.025, 0.1, 0, 5, 3, 0, 6,3),
 SMC         Pitch(45,70,0,0.001,15000,0.9,1,1),
             Pitch_Zm(60, 130, 0, 0.1, 16000, 1, 1, 1);
 SMC_PITCH SMC_Pitch(35,45, 1.0f, 0.01f, 20000, 0.8f, 1),
-            SMC_Pitch_Zm(40,55, 2.0f, 0.01f, 20000, 0.8f, 0.3f);
+            SMC_Pitch_Zm(40,55, 25.0f, 0.01f, 20000, 0.8f, 1.0f);
 static PITCH pitch_instance;
 PITCH *pitch = &pitch_instance;
-
-// ===== Ozone scope mirrors (debug only) =====
-// Ozone Data Sampling can only graph globals with a fixed address; pitch->Target_Angle is a
-// pointer dereference and pitch_instance is file-static, so neither can be added directly.
-// These are written once per control tick in Pitch_Out_Interface(). Units: deg, deg/s, Nm.
-// Target and real are in the same frame (negative = elevate): error = real - target.
-volatile float dbg_p_target = 0;    // pitch->Target_Angle
-volatile float dbg_p_real   = 0;    // GIMBAL_088.realAngle.roll
-volatile float dbg_p_vel    = 0;    // GIMBAL_088.Anglespeed.Deal_roll
-volatile float dbg_p_err    = 0;    // SMC_Pitch_Zm.error
-volatile float dbg_p_s      = 0;    // SMC_Pitch_Zm.s   (sliding surface, includes integral)
-volatile float dbg_p_int    = 0;    // SMC_Pitch_Zm integral (clamped to +-1.0)
-volatile float dbg_p_u      = 0;    // SMC_Pitch_Zm.u   (limit +-20000)
-volatile float dbg_p_out    = 0;    // Pitch_Out       (Nm, limit +-7)
-volatile float dbg_p_state  = 0;    // 0=NORMAL 1=AUTO_ZM 2=ZERO
 extern MOTOR_DM DM_PITCH;
 extern float Zm_Pitch_Vel, Zm_Pitch_Acc;
 
@@ -87,9 +72,6 @@ void PITCH::switchState(State newState)
     {
         currentState = State::ZERO;
     }
-    // 2026-09-27: reset integrals when switching controller (manual <-> auto-aim).
-    SMC_Pitch.ResetIntegral();
-    SMC_Pitch_Zm.ResetIntegral();
 }
 
 f PITCH::runCurrentState(u8 jianshu_flag)
@@ -127,7 +109,7 @@ f PITCH::stateAUTO_ZM(u8 jianshu_flag)
     Pitch_Out = gm6020to_torq_pitch(SMC_Pitch_Zm.u);
     Pitch_Out += GetPitchUpGravityComp(Target_Angle, GIMBAL_088.realAngle.roll);
     Pitch_Out = LIMIT(Pitch_Out, -7.0f, 7.0f);
-    return 0;
+    return Pitch_Out;
 }
 
 // ZERO: 保护模式，输出置零
@@ -169,19 +151,7 @@ f PITCH::Pitch_Out_Interface(u8 jianshu_flag)
     {
         switchState(nextState);
     }
-    f out = runCurrentState(jianshu_flag);
-
-    // debug mirrors for Ozone (see top of file)
-    dbg_p_target = Target_Angle;
-    dbg_p_real   = GIMBAL_088.realAngle.roll;
-    dbg_p_vel    = GIMBAL_088.Anglespeed.Deal_roll;
-    dbg_p_err    = SMC_Pitch_Zm.error;
-    dbg_p_s      = SMC_Pitch_Zm.s;
-    dbg_p_int    = SMC_Pitch_Zm.Integral();
-    dbg_p_u      = SMC_Pitch_Zm.u;
-    dbg_p_out    = out;
-    dbg_p_state  = static_cast<float>(static_cast<u8>(currentState));
-    return out;
+    return runCurrentState(jianshu_flag);
 }
 
 void PITCH::set_Pitch_Target(f Target_Angle)
