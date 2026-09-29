@@ -215,6 +215,12 @@ float bmi088_gyro_raw_to_dps(int16_t raw) {
     return (float)raw * DPS_NUMERATOR / DPS_DENOMINATOR;
 }
 
+bool bmi088_gyro_sample_is_clipped(const bmi088_gyro_sample *sample) {
+    return sample->x_raw >= 32766 || sample->x_raw <= -32767 ||
+           sample->y_raw >= 32766 || sample->y_raw <= -32767 ||
+           sample->z_raw >= 32766 || sample->z_raw <= -32767;
+}
+
 const char *bmi088_gyro_status_text(bmi088_gyro_status status) {
     switch (status) {
         case BMI088_GYRO_OK:

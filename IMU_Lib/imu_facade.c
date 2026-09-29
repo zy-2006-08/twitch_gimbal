@@ -118,6 +118,7 @@ void imu_facade_tick(imu_facade *facade)
         .dt_s = dt_s,
         .skipped_cycles = 0u,
         .gyro_raw_valid = true,
+        .gyro_clipped = bmi088_gyro_sample_is_clipped(&gyro_sample),
         .acceleration_valid = facade->acceleration_valid,
         .acceleration_fresh = acceleration_fresh,
         .acceleration_sampled = acceleration_sampled,
@@ -152,6 +153,9 @@ void imu_facade_tick(imu_facade *facade)
     facade->roll_deg = output.attitude.euler_zyx_deg.roll_deg;
     facade->pitch_deg = output.attitude.euler_zyx_deg.pitch_deg;
     facade->yaw_deg = output.attitude.euler_zyx_deg.yaw_deg;
+    facade->euler_zyx_singular = output.attitude.euler_zyx_singular;
+    facade->gyro_clip_count = output.gyro_clip_count;
+    facade->heading_valid = output.heading_valid;
 
     /* angular_velocity_dps, not attitude_angular_velocity_dps: the latter has a
      * 1 dps static deadband applied when stationary, which would hide real slow

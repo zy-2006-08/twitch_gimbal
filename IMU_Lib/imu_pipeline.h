@@ -36,6 +36,7 @@ typedef struct {
     float dt_s;
     uint32_t skipped_cycles;
     bool gyro_raw_valid;
+    bool gyro_clipped;
     bool acceleration_valid;
     bool acceleration_fresh;
     bool acceleration_sampled;
@@ -56,6 +57,8 @@ typedef struct {
     imu_angular_acceleration_dps2 angular_acceleration_dps2;
     imu_attitude_output attitude;
     float attitude_heading_drift_deg;
+    uint32_t gyro_clip_count;
+    bool heading_valid;
     imu_drift_statistics drift;
     imu_drift_statistics calibrated_drift;
     imu_stationary_experiment_phase experiment_phase;
@@ -91,6 +94,8 @@ typedef struct {
     imu_gyro_drift hold_out_calibrated_drift;
     imu_temperature_gate temperature_gate;
     bool calibration_enabled;
+    uint32_t gyro_clip_count;
+    bool heading_valid;
 } imu_pipeline;
 
 void imu_pipeline_init(imu_pipeline *pipeline);

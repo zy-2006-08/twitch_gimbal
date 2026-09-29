@@ -30,6 +30,7 @@ typedef struct {
 typedef struct {
     imu_acceleration_g acceleration_g;
     float age_s;
+    float sample_dt_s;
     bool valid;
     bool fresh;
     bool allow_integral_feedback;
@@ -48,6 +49,7 @@ typedef struct {
 typedef struct {
     imu_quaternionf quaternion;
     imu_euler_zyx_deg euler_zyx_deg;
+    bool euler_zyx_singular;
 } imu_attitude_output;
 
 /* Starts at the identity quaternion. The quaternion is scalar-first and

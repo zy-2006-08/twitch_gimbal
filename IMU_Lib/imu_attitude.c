@@ -70,9 +70,13 @@ static imu_euler_zyx_deg imu_quaternion_to_euler(
 
 static imu_attitude_output imu_attitude_output_for(
     const imu_attitude *attitude) {
+    const imu_euler_zyx_deg euler =
+        imu_quaternion_to_euler(attitude->quaternion);
     return (imu_attitude_output){
         .quaternion = attitude->quaternion,
-        .euler_zyx_deg = imu_quaternion_to_euler(attitude->quaternion),
+        .euler_zyx_deg = euler,
+        /* ZYX yaw and roll are not independently defined near vertical pitch. */
+        .euler_zyx_singular = fabsf(euler.pitch_deg) >= 85.0f,
     };
 }
 
@@ -93,6 +97,7 @@ imu_attitude_output imu_attitude_update(imu_attitude *attitude,
         (imu_attitude_acceleration){
             .acceleration_g = acceleration_g,
             .age_s = 0.0f,
+            .sample_dt_s = dt_s,
             .valid = true,
             .fresh = true,
             .allow_integral_feedback = true,
@@ -140,6 +145,10 @@ imu_attitude_output imu_attitude_update_timed(
         gyro_dps.z_dps * (imu_pi_f / 180.0f);
 
     if (acceleration_is_valid) {
+        const float feedback_scale =
+            acceleration.sample_dt_s > dt_s
+                ? acceleration.sample_dt_s / dt_s
+                : 1.0f;
         const float inverse_acceleration_magnitude =
             1.0f / acceleration_magnitude_g;
         const float ax = acceleration.acceleration_g.x_g *
@@ -162,17 +171,23 @@ imu_attitude_output imu_attitude_update_timed(
 
         if (acceleration.allow_integral_feedback) {
             attitude->integral_error_x_rad_s +=
-                attitude->config.integral_gain * error_x * dt_s;
+                attitude->config.integral_gain * error_x *
+                acceleration.sample_dt_s;
             attitude->integral_error_y_rad_s +=
-                attitude->config.integral_gain * error_y * dt_s;
+                attitude->config.integral_gain * error_y *
+                acceleration.sample_dt_s;
             attitude->integral_error_z_rad_s +=
-                attitude->config.integral_gain * error_z * dt_s;
+                attitude->config.integral_gain * error_z *
+                acceleration.sample_dt_s;
         }
-        corrected_x_rad_s += attitude->config.proportional_gain * error_x +
+        corrected_x_rad_s += attitude->config.proportional_gain * error_x *
+                                 feedback_scale +
                              attitude->integral_error_x_rad_s;
-        corrected_y_rad_s += attitude->config.proportional_gain * error_y +
+        corrected_y_rad_s += attitude->config.proportional_gain * error_y *
+                                 feedback_scale +
                              attitude->integral_error_y_rad_s;
-        corrected_z_rad_s += attitude->config.proportional_gain * error_z +
+        corrected_z_rad_s += attitude->config.proportional_gain * error_z *
+                                 feedback_scale +
                              attitude->integral_error_z_rad_s;
     }
 

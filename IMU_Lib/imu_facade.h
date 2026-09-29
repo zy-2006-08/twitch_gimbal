@@ -105,6 +105,11 @@ typedef struct {
     uint32_t accel_error_count;
     uint32_t calibration_reset_count;
     imu_stationary_experiment_phase experiment_phase;
+    /* Gyro hit the int16 rail at least once; yaw can no longer be trusted. */
+    uint32_t gyro_clip_count;
+    bool heading_valid;
+    /* |pitch| >= 85 deg: ZYX yaw/roll are not independently defined. */
+    bool euler_zyx_singular;
 } imu_facade;
 
 /* Brings up both sensors and resets the pipeline.

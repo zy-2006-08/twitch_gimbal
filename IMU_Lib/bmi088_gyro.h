@@ -19,6 +19,7 @@
 #define DRIVERS_IMU_BMI088_BMI088_GYRO_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -87,6 +88,9 @@ int32_t bmi088_gyro_raw_to_mdps(int16_t raw);
 
 /* Converts a raw count without passing through integer mdps quantization. */
 float bmi088_gyro_raw_to_dps(int16_t raw);
+
+/* True when any axis is within one count of the signed 16-bit rails. */
+bool bmi088_gyro_sample_is_clipped(const bmi088_gyro_sample *sample);
 
 /* A short, stable, non-NULL description of a status value. */
 const char *bmi088_gyro_status_text(bmi088_gyro_status status);

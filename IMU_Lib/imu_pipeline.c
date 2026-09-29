@@ -95,7 +95,9 @@ void imu_pipeline_init_with_experiment_config(
     const imu_stationary_experiment_config *experiment_config) {
     const imu_attitude_config attitude_config = {
         .proportional_gain = 2.0f,
-        .integral_gain = 0.1f,
+        /* Startup calibration and ZARU own bias learning. Mahony integral
+         * feedback must not learn translational acceleration as gyro bias. */
+        .integral_gain = 0.0f,
         .min_acceleration_magnitude_g = 0.8f,
         .max_acceleration_magnitude_g = 1.2f,
         .max_acceleration_correction_gyro_dps = 100.0f,
@@ -108,6 +110,7 @@ void imu_pipeline_init_with_experiment_config(
     imu_zaru_init(&pipeline->zaru, &zaru_config);
     imu_pipeline_heading_init(&pipeline->heading);
     pipeline->zaru_enabled = true;
+    pipeline->heading_valid = true;
     imu_gyro_drift_init(&pipeline->hold_out_raw_drift,
                         &experiment_config->stationarity);
     imu_gyro_drift_init(&pipeline->hold_out_calibrated_drift,
@@ -156,6 +159,8 @@ static imu_pipeline_output pipeline_output(const imu_pipeline *pipeline,
                                : (imu_gyro_dps){0};
     output.zaru_bias_dps = pipeline->zaru.bias_dps;
     output.attitude_heading_drift_deg = pipeline->heading.drift_deg;
+    output.gyro_clip_count = pipeline->gyro_clip_count;
+    output.heading_valid = pipeline->heading_valid;
     output.hold_out_bias_dps = experiment->frozen_bias_dps;
     output.drift = imu_gyro_drift_statistics(&pipeline->hold_out_raw_drift);
     output.calibrated_drift =
@@ -205,6 +210,10 @@ imu_pipeline_output imu_pipeline_update_timed(imu_pipeline *pipeline,
     }
 
     const imu_gyro_dps gyro_dps = input_gyro_dps(pipeline, input);
+    if (input->gyro_clipped) {
+        pipeline->gyro_clip_count++;
+        pipeline->heading_valid = false;
+    }
     const imu_stationary_experiment_phase phase_before =
         pipeline->experiment.phase;
     bool accepted = false;
@@ -257,7 +266,9 @@ imu_pipeline_output imu_pipeline_update_timed(imu_pipeline *pipeline,
         (imu_attitude_acceleration){
             .acceleration_g = input->acceleration_g,
             .age_s = input->acceleration_age_s,
-            .valid = input->acceleration_valid,
+            .sample_dt_s = input->acceleration_sample_dt_s,
+            .valid = input->acceleration_valid &&
+                     pipeline->experiment.sample_stationary,
             .fresh = input->acceleration_fresh,
             .allow_integral_feedback = pipeline->experiment.sample_stationary,
         },
