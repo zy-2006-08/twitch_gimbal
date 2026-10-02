@@ -251,18 +251,30 @@ f BP::BP_Out_Interface(u8 YK_Mode, u8 jianshu_flag)
     // 目标角度更新（原 BP_deal 逻辑）
     if (YK_Mode == SHOOT_MODE)
     {
-        // 视觉自动开火(电平触发, 射频/热量/卡弹由 AutoFire_Ready 控制)
-        const u8 vision_fire = request.zimiao_status && SuperPower.mode == 2 && mcl->Mode == 1 && Error_flag == 0
+        // 视觉控制和拨盘开火是两条独立链路：云台由 app_gimbal.cpp 按 mode 1/2 持续跟随；
+        // 这里的 vision_fire 只决定拨盘是否出弹，不能影响 yaw/pitch 跟随。
+        const u8 vision_fire_signal = request.zimiao_status && SuperPower.mode == 2;
+        // ch0<-600: 正常视觉连续火控；ch0>600: 每次 mode 上升沿只打一发。
+        // ch1>600 仍由 MCL_while_layer() 独立负责打开摩擦轮。
+        const u8 vision_continuous_mode = YK.yaogan.ch0 < -600;
+        const u8 vision_one_per_armor_mode = YK.yaogan.ch0 > 600;
+        // 视觉自动开火的安全门控（摩擦轮/错误/堵弹）。
+        const u8 vision_fire = vision_fire_signal && mcl->Mode == 1 && Error_flag == 0
                                && !bp->Blockage && !bp->Blockage_To_Daed;
         // 遥控单发仍是上升沿. 原写法 A || B && C && D 因 && 优先级高于 ||,
         // 遥控单发这一路没有检查摩擦轮和错误状态, 这里修正.
         const u8 remote_one = (UD_BP_ON.updata(bp->ONE_ON) == UpDown_check_rising);
-        if (vision_fire && AutoFire_Ready())
+        const u8 vision_fire_rising =
+            (UD_BP_FIRE.updata(vision_fire_signal) == UpDown_check_rising);
+        const u8 vision_fire_allowed =
+            vision_fire && (vision_continuous_mode ||
+                            (vision_one_per_armor_mode && vision_fire_rising));
+        if (vision_fire_allowed && AutoFire_Ready())
         {
             AutoFire_Shoot();
             Continuous_shooting_flag = 0;
         }
-        else if (vision_fire)
+        else if (vision_fire_allowed)
         {
             // 允许开火但还没到下一发时间: 保持单发状态, 什么都不改
         }

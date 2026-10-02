@@ -127,7 +127,7 @@ f PITCH::stateAUTO_ZM(u8 jianshu_flag)
     Pitch_Out = gm6020to_torq_pitch(SMC_Pitch_Zm.u);
     Pitch_Out += GetPitchUpGravityComp(Target_Angle, GIMBAL_088.realAngle.roll);
     Pitch_Out = LIMIT(Pitch_Out, -7.0f, 7.0f);
-    return 0;
+    return Pitch_Out;
 }
 
 // ZERO: 保护模式，输出置零

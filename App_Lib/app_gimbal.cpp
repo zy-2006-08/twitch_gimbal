@@ -329,6 +329,8 @@ static void Laser_Deal(void)
   static uint32_t last_rx_count = 0;
   static uint16_t vision_lost_ms = LASER_VISION_TIMEOUT_MS;
   static uint8_t blink_ms = 0;
+  /* 手动激光闭锁: 双上推滚轮翻转, 跨模式一直保持, 只在自瞄不占用激光时输出。 */
+  static uint8_t manual_laser_on = 0;
 
   // 用头尾帧计数判断视觉是否还在持续发数据
   const uint32_t rx_count = Zm_rx_good_count;
@@ -344,9 +346,24 @@ static void Laser_Deal(void)
 
   const uint8_t fire_cmd = request.zimiao_status && SuperPower.mode == 2 && vision_lost_ms < LASER_VISION_TIMEOUT_MS;
 
+  /* 只在双上(PROTECT_MODE)采集翻转沿, 其他模式滚轮另有用途(见 SHOOT_MODE 拨弹),
+   * 不参与翻转。闭锁状态本身跨模式保持, 不会因为切走而清掉。 */
+  const bool wheel_pushed = (YK.yaogan.v > 600);
+  if (YK_Mode == PROTECT_MODE)
+  {
+    if (UD_Laser.updata(wheel_pushed) == UpDown_check_rising)
+      manual_laser_on = !manual_laser_on;
+  }
+  else
+  {
+    /* 非双上时不翻转, 但仍要跟踪滚轮位置, 否则切回双上的第一帧会把
+     * 已经推住的滚轮误判成一次新的上升沿。 */
+    (void)UD_Laser.updata(wheel_pushed);
+  }
+
   if (fire_cmd)
   {
-    // 进入开火状态第一帧即点亮, 之后按 40ms 周期翻转
+    // 自瞄开火优先占用激光: 进入开火状态第一帧即点亮, 之后按 40ms 周期翻转
     if (blink_ms < LASER_BLINK_ON_MS)
       JG_ON;
     else
@@ -355,8 +372,12 @@ static void Laser_Deal(void)
   }
   else
   {
-    JG_OFF;
+    // 自瞄未占用时才让手动闭锁输出, 两者互不干扰
     blink_ms = 0;
+    if (manual_laser_on)
+      JG_ON;
+    else
+      JG_OFF;
   }
 }
 
@@ -576,7 +597,10 @@ void App_Gimbal_USART2_IRQHandler(void)
           }
           else
           {
-            if (SuperPower.mode == 1 || SuperPower.mode == 2)
+            // 单发/连发只影响拨盘；mode 1 和 mode 2 都必须持续更新云台目标。
+            // 不要把“是否允许拨弹”误当成“是否控制自瞄云台”。
+            const uint8_t vision_control = (SuperPower.mode == 1 || SuperPower.mode == 2);
+            if (vision_control)
             {
               Zm_Yaw_Vel = (SuperPower.yaw_vel.f * 57.3);
               Zm_Yaw_Acc = (SuperPower.yaw_acc.f * 57.3);
