@@ -22,6 +22,9 @@
 #define SPEED_CUT_FLAG_MASK (0x0001 << 2)
 #define XTL_FLAG_MASK (0x0001 << 3)
 #define CHASSIS_SPIN_FF_CAN_ID 0x116
+// 底盘 -> 云台 调试遥测, 底盘 app_chassis.cpp 发, 帧格式见那边 CHASSIS_DEBUG_CAN_ID_BASE 的注释
+#define CHASSIS_DEBUG_CAN_ID_BASE 0x6A0
+#define CHASSIS_DEBUG_FRAME_NUM 5
 #define PI 3.1415926
 #define JG_ON HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET)
 #define JG_OFF HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET)
@@ -83,6 +86,24 @@ uint64_t disable_irq_1, disable_irq_2, disable_irq_3, disable_irq_4, disable_irq
 uint16_t zm_test_flag;
 float Zm_Yaw_Vel, Zm_Yaw_Acc;
 float Zm_Pitch_Vel, Zm_Pitch_Acc;
+
+// 底盘调试遥测(每个字段 100Hz 更新), 在 Ozone 里看 dbg_chassis.xxx
+// 轮子顺序: QZ=0x201, HY=0x202, QY=0x203, HZ=0x204, 转速单位都是 3508 电机轴 rpm
+typedef struct
+{
+  int16_t set_qz, set_hy, set_qy, set_hz; // 四轮目标转速
+  int16_t sp_qz, sp_hy, sp_qy, sp_hz;     // 四轮实际转速
+  int16_t out_qz, out_hy, out_qy, out_hz; // 四轮最终电流指令(功率限制后)
+  float forward, right, turn;             // 进混合器的 前后/左右/旋转 指令(XTL 模式里前后左右就是摇杆值)
+  float theta_deg;                        // 云台相对底盘正前方的角度, 度, -180~180
+  float total_output, limit_output;       // 功率限制: 四轮输出绝对值之和 / 限制值, 前者 >= 后者说明在限功率
+  float v_cap;                            // 电容电压 V
+  uint8_t chassis_mode;                   // 底盘的 YK_Mode: 4 = XTL 拨杆小陀螺, 6 = PLAYER 键鼠
+  uint8_t xtl_flag;                       // 底盘的 Q 键小陀螺标志
+  uint32_t rx_cnt;                        // 收到的调试帧总数, 一直在涨说明链路通
+} Chassis_Debug_t;
+
+volatile Chassis_Debug_t dbg_chassis;
 //INFO information
 static uint8_t free_FIFO;
 static uint8_t test_flag;
@@ -510,6 +531,55 @@ void App_Gimbal_CAN1_RxFifo0Callback(CAN_HandleTypeDef *hcan)
   }
 }
 
+// 底盘调试遥测解析(CAN2 接收中断里调用, 不是 0x6A0~0x6A4 直接返回)
+static void Chassis_Debug_deal(void)
+{
+  const uint32_t debug_id = CAN_2.RxHeader.StdId;
+  if (debug_id < CHASSIS_DEBUG_CAN_ID_BASE || debug_id >= CHASSIS_DEBUG_CAN_ID_BASE + CHASSIS_DEBUG_FRAME_NUM)
+    return;
+
+  // 4 个大端 int16, 和底盘 Send_RM 的打包方式一致
+  int16_t word[4];
+  for (uint8_t i = 0; i < 4; i++)
+    word[i] = (int16_t)((CAN_2.rx_buf[2 * i] << 8) | CAN_2.rx_buf[2 * i + 1]);
+
+  switch (debug_id - CHASSIS_DEBUG_CAN_ID_BASE)
+  {
+    case 0:
+      dbg_chassis.set_qz = word[0];
+      dbg_chassis.set_hy = word[1];
+      dbg_chassis.set_qy = word[2];
+      dbg_chassis.set_hz = word[3];
+      break;
+    case 1:
+      dbg_chassis.sp_qz = word[0];
+      dbg_chassis.sp_hy = word[1];
+      dbg_chassis.sp_qy = word[2];
+      dbg_chassis.sp_hz = word[3];
+      break;
+    case 2:
+      dbg_chassis.out_qz = word[0];
+      dbg_chassis.out_hy = word[1];
+      dbg_chassis.out_qy = word[2];
+      dbg_chassis.out_hz = word[3];
+      break;
+    case 3:
+      dbg_chassis.forward = (float)word[0] / 10.0f;
+      dbg_chassis.right = (float)word[1] / 10.0f;
+      dbg_chassis.turn = (float)word[2];
+      dbg_chassis.theta_deg = (float)word[3] / 10000.0f * 57.29578f;
+      break;
+    default:
+      dbg_chassis.total_output = (float)word[0] * 2.0f;
+      dbg_chassis.limit_output = (float)word[1] * 2.0f;
+      dbg_chassis.v_cap = (float)word[2] / 100.0f;
+      dbg_chassis.chassis_mode = (uint8_t)((uint16_t)word[3] & 0x00FF);
+      dbg_chassis.xtl_flag = (uint8_t)((uint16_t)word[3] >> 8);
+      break;
+  }
+  dbg_chassis.rx_cnt = dbg_chassis.rx_cnt + 1U;
+}
+
 void App_Gimbal_CAN2_RxFifo1Callback(CAN_HandleTypeDef *hcan)
 {
   (void)hcan;
@@ -525,6 +595,7 @@ void App_Gimbal_CAN2_RxFifo1Callback(CAN_HandleTypeDef *hcan)
                                 (float)spin_phase_sin / CHASSIS_SPIN_PHASE_SCALE,
                                 (float)spin_phase_cos / CHASSIS_SPIN_PHASE_SCALE);
     }
+    Chassis_Debug_deal();
 
     if (DM_YAW.DM_update() == HAL_OK)
     {
