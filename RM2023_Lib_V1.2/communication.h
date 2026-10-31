@@ -279,6 +279,11 @@ extern volatile uint32_t Zm_rx_crc_bad;
 extern volatile uint32_t Zm_ore_count;
 extern volatile uint8_t  Zm_rx_last[29];
 
+/* 拨盘出弹计数: 每推进一格(自瞄 AutoFire 或遥控单发)+1, 回传视觉包第 25~26 字节(小端),
+ * 视觉侧 GimbalToVision.bullet_count 接收, FIREPROBE 日志 bullets= 字段可直接看到。
+ * 定义在 Control/Shoot.cpp。 */
+extern volatile uint16_t bp_shot_count;
+
 #ifdef __cplusplus
 }
 #endif

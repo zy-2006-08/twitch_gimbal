@@ -270,6 +270,18 @@ class SMC{
 	float u;
     float s;
     float error;
+    // ★2026-10-08 加速度前馈系数。1.0 = 原行为, 不改就不会变。
+    //   【为什么要加】SMC_AngleSpeed 里 u = J*(Target_angle_acc - ...), J=0.9。
+    //   位置误差项是 J*K*C = 0.9*55*30 = 1485 单位/度; 视觉发的 yaw 加速度峰值约 160 deg/s^2,
+    //   前馈只贡献 0.9*160 = 144 单位, 相当于 0.1 度的位置误差 —— 等于没有前馈。
+    //   车一加速只能靠位置误差积累驱动, 视觉日志实测云台落后从 30ms 涨到 50~70ms。
+    //   【怎么调】Ozone 变量窗口直接改 Yaw_Zm.acc_ff, 不用重新烧写:
+    //     1.0(原样) -> 2 -> 3 -> 4 -> 5, 每档推车做匀速平移和急起急停。
+    //     看 yaw->Target_Angle(视觉指令) 和 GIMBAL_088.realAngle.yaw(云台实际) 两条曲线的差。
+    //     目标: 加速时落后从 1.2 度降到 0.6 度以内。云台开始抖或过冲就退回上一档。预计落在 3~5。
+    //   【安全】前馈只在 u 里加一项, 后面仍有 u_max 限幅, 调大不会突破力矩上限。
+    float acc_ff = 2.0;
+    float acc_ff_max = 8000.0f;  // 前馈单独限幅(输出单位), 防止调过头时一帧猛推
 	//初始化列表
 	SMC(float C,float K,float ref,float error_eps,float u_max,float J,float epsilon,float delta):
 	C(C),K(K),ref(ref),error_eps(error_eps),u_max(u_max),J(J),epsilon(epsilon),delta(delta){};
@@ -333,6 +345,11 @@ class SMC_PITCH{
     float s;
     float error;
     float dt;
+    // ★2026-10-08 和 SMC::acc_ff 同一用途, pitch 单独调。1.0 = 原行为。
+    //   Ozone 里改 SMC_Pitch_Zm.acc_ff (自瞄用的 pitch 实例, 见 Control/Pitch.cpp:22)。
+    //   pitch 的落后目前没有实测数据, 建议先只调 yaw, 确认有效再动这里。
+    float acc_ff = 1.0f;
+    float acc_ff_max = 8000.0f;
     SMC_PITCH(float C, float K, float c2, float error_eps, float u_max, float J, float epsilon) : 
     C(C), K(K), C2(c2), error_eps(error_eps), u_max(u_max), J(J), epsilon(epsilon) {};
     float gm6020to_torq(float u);

@@ -107,9 +107,12 @@ void    Mini_PC_SendData()
         Mini_PC_tx_buf[22] = AS.heat_speed.c[1];
         Mini_PC_tx_buf[23] = AS.heat_speed.c[2];
         Mini_PC_tx_buf[24] = AS.heat_speed.c[3];
-        for(int i=25;i<26;i++)
+        // 25~26: 拨盘出弹计数(小端), 对应视觉 GimbalToVision.bullet_count。
+        // 原来这里填 0, 视觉日志 bullets= 一直是 0, 看不到电控实际推了几格。
         {
-            Mini_PC_tx_buf[i] = 0x00;
+            const uint16_t shot_count = bp_shot_count;
+            Mini_PC_tx_buf[25] = (uint8_t)(shot_count & 0xFF);
+            Mini_PC_tx_buf[26] = (uint8_t)(shot_count >> 8);
         }
        
 		AS.crc_Num.typeMum = get_crc16(Mini_PC_tx_buf,27);

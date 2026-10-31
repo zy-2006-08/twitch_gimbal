@@ -77,10 +77,16 @@ void SMC::SMC_AngleSpeed(float Target_angle,float Target_angle_vel,float Target_
      
     // 3. 滑模面
         s = C * error + d_error;
-    
+
     // 4. 控制律（带边界层）
       const float sat_delta = (delta > 1e-6f) ? delta : 1.0f;
-        u = J * (Target_angle_acc - C * d_error - K * s - epsilon * Sat_New(s, sat_delta));
+      // ★2026-10-08 加速度前馈乘 acc_ff(缺省 1.0 = 原行为), 并单独限幅。
+      //   原来 J*Target_angle_acc 只有 144 单位(视觉峰值 160 deg/s^2), 而位置误差项 J*K*C = 1485 单位/度,
+      //   前馈相当于 0.1 度误差, 加速时顶不上去。详见 SMC.h 里 acc_ff 的注释。
+      float acc_term = J * acc_ff * Target_angle_acc;
+      if (acc_term > acc_ff_max)  acc_term = acc_ff_max;
+      if (acc_term < -acc_ff_max) acc_term = -acc_ff_max;
+        u = acc_term + J * (-C * d_error - K * s - epsilon * Sat_New(s, sat_delta));
     
     // 5. 限幅
     if (u > u_max)  u = u_max;
@@ -136,7 +142,11 @@ void SMC_PITCH::SMC_Tick(float Target_angle, float Target_angle_vel, float Targe
     s = C * error + d_error + C2 * error_integral;
 
     // 4. 控制律
-    u = J * (Target_angle_acc - C * d_error - C2 * error - K * s - epsilon * Sat(s));
+    // ★2026-10-08 加速度前馈乘 acc_ff(缺省 1.0 = 原行为), 并单独限幅。详见 SMC.h 注释。
+    float acc_term_p = J * acc_ff * Target_angle_acc;
+    if (acc_term_p > acc_ff_max)  acc_term_p = acc_ff_max;
+    if (acc_term_p < -acc_ff_max) acc_term_p = -acc_ff_max;
+    u = acc_term_p + J * (-C * d_error - C2 * error - K * s - epsilon * Sat(s));
 
     // 5. 限幅
     u = LIMIT(u, -u_max, u_max);
