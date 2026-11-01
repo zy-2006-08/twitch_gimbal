@@ -90,6 +90,11 @@ typedef struct {
     imu_zaru_observer zaru;
     imu_pipeline_heading_metrics heading;
     bool zaru_enabled;
+    /* Static-path gyro low-pass. Tracking continuously keeps it settled; only
+     * consulted while the stationarity flag is true, so real motion always
+     * uses the raw gyro. */
+    imu_gyro_dps static_gyro_filtered_dps;
+    bool static_gyro_filter_valid;
     imu_gyro_drift hold_out_raw_drift;
     imu_gyro_drift hold_out_calibrated_drift;
     imu_temperature_gate temperature_gate;

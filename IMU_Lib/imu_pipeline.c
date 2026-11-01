@@ -5,7 +5,12 @@
 #include "imu_pipeline.h"
 
 static const imu_stationarity_config experiment_stationarity = {
-    .max_gyro_magnitude_dps = 2.0f,
+    /* Loosened from 2.0 dps: friction-wheel vibration produced |omega| peaks
+     * around 3.3 dps while the robot was physically still, which flipped the
+     * instantaneous stationarity flag and disabled the static deadband and
+     * accelerometer correction. The acceleration gate stays at 0.95..1.05 g,
+     * so real linear acceleration still invalidates the reference. */
+    .max_gyro_magnitude_dps = 4.0f,
     .min_acceleration_magnitude_g = 0.95f,
     .max_acceleration_magnitude_g = 1.05f,
 };
@@ -47,6 +52,42 @@ static imu_gyro_dps apply_static_yaw_deadband(imu_gyro_dps gyro_dps,
         }
     }
     return gyro_dps;
+}
+
+/* 50 ms first-order low-pass on the gyro that drives the attitude filter.
+ * Friction-wheel vibration puts +/-2 dps spikes on a signal whose mean is
+ * only ~0.005 dps; a 1 dps deadband cannot remove those spikes, so they
+ * integrate into ~0.5 deg/min of yaw drift. Filtering first turns the spikes
+ * into a small mean that the existing deadband then removes. The filter runs
+ * every tick so it is settled when the robot stops; it is only USED while
+ * stationary, so real motion keeps the raw gyro and no extra lag. */
+#define IMU_STATIC_GYRO_LPF_TAU_S 0.050f
+
+static imu_gyro_dps update_static_gyro_lpf(imu_pipeline *pipeline,
+                                           imu_gyro_dps gyro_dps,
+                                           float dt_s) {
+    if (!pipeline->static_gyro_filter_valid) {
+        pipeline->static_gyro_filtered_dps = gyro_dps;
+        pipeline->static_gyro_filter_valid = true;
+        return pipeline->static_gyro_filtered_dps;
+    }
+    if (dt_s <= 0.0f) {
+        return pipeline->static_gyro_filtered_dps;
+    }
+
+    float alpha = dt_s / (IMU_STATIC_GYRO_LPF_TAU_S + dt_s);
+    if (alpha < 0.0f) {
+        alpha = 0.0f;
+    } else if (alpha > 1.0f) {
+        alpha = 1.0f;
+    }
+    pipeline->static_gyro_filtered_dps.x_dps +=
+        alpha * (gyro_dps.x_dps - pipeline->static_gyro_filtered_dps.x_dps);
+    pipeline->static_gyro_filtered_dps.y_dps +=
+        alpha * (gyro_dps.y_dps - pipeline->static_gyro_filtered_dps.y_dps);
+    pipeline->static_gyro_filtered_dps.z_dps +=
+        alpha * (gyro_dps.z_dps - pipeline->static_gyro_filtered_dps.z_dps);
+    return pipeline->static_gyro_filtered_dps;
 }
 
 static imu_gyro_dps input_gyro_dps(const imu_pipeline *pipeline,
@@ -255,8 +296,13 @@ imu_pipeline_output imu_pipeline_update_timed(imu_pipeline *pipeline,
                                                    pipeline->zaru.bias_valid
                                                 ? pipeline->zaru.bias_dps
                                                 : bias_dps;
+    const imu_gyro_dps attitude_gyro_bias_corrected =
+        subtract_bias(gyro_dps, attitude_bias_dps);
+    const imu_gyro_dps attitude_gyro_filtered = update_static_gyro_lpf(
+        pipeline, attitude_gyro_bias_corrected, input->dt_s);
     const imu_gyro_dps attitude_gyro_dps = apply_static_yaw_deadband(
-        subtract_bias(gyro_dps, attitude_bias_dps),
+        pipeline->experiment.sample_stationary ? attitude_gyro_filtered
+                                               : attitude_gyro_bias_corrected,
         pipeline->experiment.sample_stationary, pipeline->zaru_enabled);
     const imu_angular_acceleration_dps2 angular_acceleration_dps2 =
         imu_angular_acceleration_update(&pipeline->angular_acceleration,
